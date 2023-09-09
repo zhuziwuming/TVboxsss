@@ -214,6 +214,7 @@ public class UserFragment extends BaseLazyFragment {
     private ArrayList<Movie.Video> loadHots(String json) {
         ArrayList<Movie.Video> result = new ArrayList<>();
         try {
+            String userAgent = UA.random();
             JsonObject infoJson = new Gson().fromJson(json, JsonObject.class);
             JsonArray array = infoJson.getAsJsonArray("data");
             for (JsonElement ele : array) {
@@ -222,7 +223,7 @@ public class UserFragment extends BaseLazyFragment {
                 vod.name = obj.get("title").getAsString();
                 vod.note = obj.get("rate").getAsString();
                 if (!vod.note.isEmpty()) vod.note += " 分";
-                vod.pic = obj.get("cover").getAsString() + "@User-Agent=com.douban.frodo";
+                vod.pic = obj.get("cover").getAsString() + "@Referer=https://movie.douban.com/@User-Agent=" + userAgent;
                 result.add(vod);
             }
         } catch (Throwable th) {
