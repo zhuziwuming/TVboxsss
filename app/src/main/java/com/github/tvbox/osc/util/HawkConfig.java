@@ -7,9 +7,11 @@ package com.github.tvbox.osc.util;
  */
 public class HawkConfig {
     public static final String API_URL = "api_url";
+    public static final String LIVE_URL = "live_url";
     public static final String EPG_URL = "epg_url";
     public static final String SHOW_PREVIEW = "show_preview";
     public static final String SUBSCRIPTIONS = "api_history";
+    public static final String LIVE_HISTORY = "live_history";
     public static final String EPG_HISTORY = "epg_history";
     public static final String HOME_API = "home_api";
     public static final String DEFAULT_PARSE = "parse_default";
@@ -21,7 +23,10 @@ public class HawkConfig {
     public static final String PLAY_SCALE = "play_scale"; //0 texture 2
     public static final String PLAY_TIME_STEP = "play_time_step"; //0 texture 2
     public static final String DOH_URL = "doh_url";
-    public static final String HOME_REC = "home_rec"; // 0 豆瓣热播 1 数据源推荐 2 历史
+    /**
+     * 0 豆瓣热播 1 数据源推荐 2 关闭主页
+     */
+    public static final String HOME_REC = "home_rec";
     public static final String HISTORY_NUM = "history_num";
     public static final String LIVE_CHANNEL = "last_live_channel_name";
     public static final String LIVE_CHANNEL_REVERSE = "live_channel_reverse";
@@ -36,4 +41,20 @@ public class HawkConfig {
     public static final String NOW_DATE = "now_date"; //当前日期
     public static final String REMOTE_TVBOX = "remote_tvbox_host";
     public static final String IJK_CACHE_PLAY = "ijk_cache_play";
+    /**
+     * 无痕浏览
+     */
+    public static final String PRIVATE_BROWSING = "private_browsing";
+    /**
+     * 主题,跟随系统0,浅1,深2
+     */
+    public static final String THEME_TAG = "theme_tag";
+    /**
+     * 后台播放模式 0 关闭,1 开启,2 画中画
+     */
+    public static final String BACKGROUND_PLAY_TYPE = "background_play_type";
+    /**
+     * TMDB请求token
+     */
+    public static final String TOKEN_TMDB = "token_tmdb";
 }

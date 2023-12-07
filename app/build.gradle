@@ -5,11 +5,11 @@ android {
     compileSdkVersion 30
 
     defaultConfig {
-        applicationId 'com.github.tvbox.ss'
+        applicationId 'com.github.tvbox.osc'
         minSdkVersion 24
         targetSdkVersion 30
-        versionCode 1
-        versionName '1.0.0'
+        versionCode 23
+        versionName '1.0.3'
         multiDexEnabled true
         //设置room的Schema的位置
         javaCompileOptions {
@@ -19,12 +19,40 @@ android {
         }
     }
 
+
+    // 执行配置
+    applicationVariants.all { variant ->
+
+        // Apk 输出配置
+        variant.outputs.all { output ->
+            outputFileName = rootProject.getName() + '_v' + variant.versionName + '_' + variant.buildType.name
+            if (variant.buildType.name == buildTypes.release.getName()) {
+                outputFileName += '_' + new Date().format("yyyyMMdd")
+            }
+            outputFileName += '.apk'
+        }
+    }
+
+
     packagingOptions {
         exclude 'META-INF/DEPENDENCIES'
     }
 
+    signingConfigs {
+        config {
+            keyAlias 'key0'
+            keyPassword '123456'
+            storeFile file('test.jks')
+            storePassword '123456'
+            v1SigningEnabled true
+            v2SigningEnabled true
+        }
+    }
+
+
     buildTypes {
         debug {
+            signingConfig signingConfigs.config
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             minifyEnabled false
 
@@ -33,10 +61,10 @@ android {
             }
         }
         release {
+            signingConfig signingConfigs.config
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             minifyEnabled true
 
-            debuggable true
             ndk {
                 abiFilters 'armeabi-v7a'
             }
@@ -60,6 +88,10 @@ android {
     }
     buildFeatures {
         viewBinding true
+    }
+
+    packagingOptions {//引入dlna-cast时的文件冲突
+        exclude 'META-INF/beans.xml'
     }
 }
 
@@ -128,6 +160,7 @@ dependencies {
 
     //tab标题栏
     implementation project(":TabLayout")
+    implementation project(':ViewPager1Delegate')
     //TabLayout的非kt项目需要依赖这个包实现点击事件等
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kotlin_version"
     //展开收缩tv
@@ -136,5 +169,8 @@ dependencies {
     implementation 'com.airbnb.android:lottie:5.2.0'
     //流式布局
     implementation 'com.hyman:flowlayout-lib:1.1.2'
-
+    //崩溃
+    implementation project(":crash")
+    //dlna投屏
+    implementation 'com.github.devin1014.DLNA-Cast:dlna-dmc:V1.0.0'
 }

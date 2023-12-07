@@ -1,49 +1,47 @@
 package com.github.tvbox.osc.ui.activity;
 
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
-import android.widget.Toast;
-
-import androidx.annotation.NonNull;
-import androidx.recyclerview.widget.DiffUtil;
 
 import com.blankj.utilcode.util.GsonUtils;
 import com.blankj.utilcode.util.SPUtils;
 import com.blankj.utilcode.util.ToastUtils;
-import com.github.tvbox.osc.R;
-import com.github.tvbox.osc.base.BaseActivity;
+import com.github.tvbox.osc.base.BaseVbActivity;
 import com.github.tvbox.osc.bean.ParseBean;
 import com.github.tvbox.osc.bean.VideoInfo;
+import com.github.tvbox.osc.bean.VodInfo;
 import com.github.tvbox.osc.constant.CacheConst;
+import com.github.tvbox.osc.databinding.ActivityLocalPlayBinding;
 import com.github.tvbox.osc.event.RefreshEvent;
-import com.github.tvbox.osc.player.IjkMediaPlayer;
 import com.github.tvbox.osc.player.MyVideoView;
-import com.github.tvbox.osc.player.TrackInfo;
-import com.github.tvbox.osc.player.TrackInfoBean;
 import com.github.tvbox.osc.player.controller.LocalVideoController;
-import com.github.tvbox.osc.player.controller.VodController;
-import com.github.tvbox.osc.ui.adapter.SelectDialogAdapter;
-import com.github.tvbox.osc.ui.dialog.SelectDialog;
+import com.github.tvbox.osc.receiver.BatteryReceiver;
+import com.github.tvbox.osc.ui.dialog.AllLocalSeriesDialog;
 import com.github.tvbox.osc.util.HawkConfig;
-import com.github.tvbox.osc.util.LOG;
 import com.github.tvbox.osc.util.PlayerHelper;
 import com.google.common.reflect.TypeToken;
+import com.lxj.xpopup.XPopup;
+import com.lxj.xpopup.core.BasePopupView;
+import com.lxj.xpopup.enums.PopupPosition;
 import com.orhanobut.hawk.Hawk;
 
 import org.greenrobot.eventbus.EventBus;
-import org.jetbrains.annotations.NotNull;
+import org.greenrobot.eventbus.Subscribe;
+import org.greenrobot.eventbus.ThreadMode;
 import org.json.JSONObject;
 
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
-import xyz.doikki.videoplayer.player.AbstractPlayer;
 import xyz.doikki.videoplayer.player.ProgressManager;
 import xyz.doikki.videoplayer.player.VideoView;
 
-public class LocalPlayActivity extends BaseActivity {
+public class LocalPlayActivity extends BaseVbActivity<ActivityLocalPlayBinding> {
 
 
     private MyVideoView mVideoView;
@@ -51,15 +49,12 @@ public class LocalPlayActivity extends BaseActivity {
     JSONObject mVodPlayerCfg;
     private List<VideoInfo> mVideoList = new ArrayList<>();
     private int mPosition;
-
-    @Override
-    protected int getLayoutResID() {
-        return R.layout.activity_local_play;
-    }
-
+    BatteryReceiver mBatteryReceiver = new BatteryReceiver();
+    private BasePopupView mAllSeriesRightDialog;
     @Override
     protected void init() {
-        mVideoView = findViewById(R.id.player);
+        registerReceiver(mBatteryReceiver,new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+        mVideoView = mBinding.player;
         mVideoView.startFullScreen();
         Bundle bundle = getIntent().getExtras();
         String videoListJson =  bundle.getString("videoList");
@@ -82,6 +77,14 @@ public class LocalPlayActivity extends BaseActivity {
                     }
                 },500);
     }
+
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    public void refresh(RefreshEvent event) {
+        if (event.type == RefreshEvent.TYPE_BATTERY_CHANGE && mController.mMyBatteryView!=null){
+            mController.mMyBatteryView.updateBattery((int) event.obj);
+        }
+    }
+
 
     /**
      * 跳转到上/下一集,需重新播放
@@ -116,7 +119,7 @@ public class LocalPlayActivity extends BaseActivity {
         PlayerHelper.updateCfg(mVideoView, mVodPlayerCfg);
 
         if (fromSkip){
-            mVideoView.replay(false);
+            mVideoView.replay(true);
         }else {
             mVideoView.start(); //开始播放，不调用则不自动播放
         }
@@ -125,6 +128,12 @@ public class LocalPlayActivity extends BaseActivity {
     private void initController() {
         mController = new LocalVideoController(this);
         mController.setListener(new LocalVideoController.VodControlListener() {
+
+            @Override
+            public void chooseSeries() {
+                showAllSeriesDialog();
+            }
+
             @Override
             public void playNext(boolean rmProgress) {
 //                String preProgressKey = progressKey;
@@ -197,11 +206,7 @@ public class LocalPlayActivity extends BaseActivity {
     }
 
     void initPlayerCfg() {
-        try {
-            mVodPlayerCfg = new JSONObject();
-        } catch (Throwable th) {
-            mVodPlayerCfg = new JSONObject();
-        }
+        mVodPlayerCfg = new JSONObject();
         try {
             if (!mVodPlayerCfg.has("pl")) {
                 mVodPlayerCfg.put("pl", Hawk.get(HawkConfig.PLAY_TYPE, 1));
@@ -210,7 +215,7 @@ public class LocalPlayActivity extends BaseActivity {
                 mVodPlayerCfg.put("pr", Hawk.get(HawkConfig.PLAY_RENDER, 0));
             }
             if (!mVodPlayerCfg.has("ijk")) {
-                mVodPlayerCfg.put("ijk", Hawk.get(HawkConfig.IJK_CODEC, "软解码"));
+                mVodPlayerCfg.put("ijk", Hawk.get(HawkConfig.IJK_CODEC, "硬解码"));
             }
             if (!mVodPlayerCfg.has("sc")) {
                 mVodPlayerCfg.put("sc", Hawk.get(HawkConfig.PLAY_SCALE, 0));
@@ -245,6 +250,7 @@ public class LocalPlayActivity extends BaseActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        unregisterReceiver(mBatteryReceiver);
         if (mVideoView != null) {
             mVideoView.release();
             mVideoView = null;
@@ -263,5 +269,28 @@ public class LocalPlayActivity extends BaseActivity {
     public void finish() {
         super.finish();
         EventBus.getDefault().post(new RefreshEvent(RefreshEvent.TYPE_REFRESH, ""));
+    }
+
+    public void showAllSeriesDialog(){
+        mAllSeriesRightDialog = new XPopup.Builder(this)
+                .isViewMode(true)//隐藏导航栏(手势条)在dialog模式下会闪一下,改为view模式,但需处理onBackPress的隐藏,下方同理
+                .hasNavigationBar(false)
+                .popupHeight(com.blankj.utilcode.util.ScreenUtils.getScreenHeight())
+                .popupPosition(PopupPosition.Right)
+                .asCustom(new AllLocalSeriesDialog(this, convertLocalVideo(), (position, text) -> {
+                    mPosition = position;
+                    play(true);
+                }));
+        mAllSeriesRightDialog.show();
+    }
+
+    private List<VodInfo.VodSeries> convertLocalVideo(){
+        List<VodInfo.VodSeries> seriesList = new ArrayList<>();
+        for (VideoInfo local : mVideoList) {
+            VodInfo.VodSeries vodSeries = new VodInfo.VodSeries(local.getDisplayName(), local.getPath());
+            vodSeries.selected = (Objects.equals(mVideoList.get(mPosition).getPath(), vodSeries.url));
+            seriesList.add(vodSeries);
+        }
+        return seriesList;
     }
 }

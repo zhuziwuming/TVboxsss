@@ -2,8 +2,13 @@ package com.github.tvbox.osc.ui.dialog;
 
 import android.app.Activity;
 import android.content.Context;
+import android.os.Bundle;
 import android.text.TextUtils;
+import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
+import android.view.WindowManager;
+import android.view.inputmethod.EditorInfo;
 import android.widget.EditText;
 import android.widget.ProgressBar;
 import android.widget.TextView;
@@ -15,6 +20,9 @@ import androidx.lifecycle.Observer;
 import androidx.lifecycle.ViewModelProvider;
 import androidx.lifecycle.ViewModelStoreOwner;
 
+import com.blankj.utilcode.util.KeyboardUtils;
+import com.blankj.utilcode.util.ScreenUtils;
+import com.blankj.utilcode.util.ToastUtils;
 import com.chad.library.adapter.base.BaseQuickAdapter;
 import com.github.tvbox.osc.R;
 import com.github.tvbox.osc.bean.Subtitle;
@@ -60,6 +68,18 @@ public class SearchSubtitleDialog extends BaseDialog {
         initViewModel();
     }
 
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        WindowManager.LayoutParams lp = new WindowManager.LayoutParams();
+        lp.copyFrom(getWindow().getAttributes());
+        lp.gravity = ScreenUtils.isPortrait()?Gravity.CENTER:Gravity.TOP | Gravity.START | Gravity.END;
+        lp.width = ViewGroup.LayoutParams.MATCH_PARENT;
+
+        getWindow().setAttributes(lp);
+        getWindow().setWindowAnimations(R.style.DialogFadeAnimation); // Set the animation style
+    }
+
     protected void initView(Context context) {
         loadingBar = findViewById(R.id.loadingBar);
         mGridView = findViewById(R.id.mGridView);
@@ -82,6 +102,10 @@ public class SearchSubtitleDialog extends BaseDialog {
                         mGridView.setVisibility(View.GONE);
                         subtitleViewModel.getSearchResultSubtitleUrls(subtitle);
                     } else {
+                        if (TextUtils.isEmpty(subtitle.getUrl())){
+                            ToastUtils.showShort("url加载失败,请重新搜索");
+                            return;
+                        }
                         loadSubtitle(subtitle);
                         dismiss();
                     }
@@ -89,6 +113,14 @@ public class SearchSubtitleDialog extends BaseDialog {
             }
         });
 
+        subtitleSearchEt.setOnEditorActionListener((v, actionId, event) -> {
+            if (actionId == EditorInfo.IME_ACTION_SEARCH) {
+                String wd = subtitleSearchEt.getText().toString().trim();
+                search(wd);
+                return true;
+            }
+            return false;
+        });
         searchAdapter.setOnLoadMoreListener(new BaseQuickAdapter.RequestLoadMoreListener() {
             @Override
             public void onLoadMoreRequested() {
@@ -121,6 +153,7 @@ public class SearchSubtitleDialog extends BaseDialog {
     }
 
     public void search(String wd) {
+        KeyboardUtils.hideSoftInput(getWindow());
         isSearchPag = true;
         searchAdapter.setNewData(new ArrayList<>());
         if (!TextUtils.isEmpty(wd)) {
@@ -152,7 +185,7 @@ public class SearchSubtitleDialog extends BaseDialog {
                 }
 
                 if (data.size() > 0) {
-                    mGridView.requestFocus();
+                    //mGridView.requestFocus();
                     if (subtitleData.getIsZip()) {
                         if (subtitleData.getIsNew()) {
                             searchAdapter.setNewData(data);

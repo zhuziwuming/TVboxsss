@@ -1,38 +1,28 @@
 package com.github.tvbox.osc.ui.activity;
 
 import androidx.annotation.NonNull;
-import androidx.appcompat.app.AppCompatActivity;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentPagerAdapter;
 import androidx.viewpager.widget.ViewPager;
 
 import android.content.Intent;
 import android.os.Bundle;
-import android.view.View;
-import android.widget.Toast;
 
 import com.blankj.utilcode.util.ActivityUtils;
 import com.blankj.utilcode.util.ToastUtils;
-import com.github.tvbox.osc.R;
-import com.github.tvbox.osc.base.BaseActivity;
+import com.github.tvbox.osc.base.BaseLazyFragment;
+import com.github.tvbox.osc.base.BaseVbActivity;
+import com.github.tvbox.osc.databinding.ActivityMainBinding;
+import com.github.tvbox.osc.ui.fragment.GridFragment;
 import com.github.tvbox.osc.ui.fragment.HomeFragment;
 import com.github.tvbox.osc.ui.fragment.MyFragment;
-import com.google.android.material.bottomnavigation.BottomNavigationView;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Timer;
-import java.util.TimerTask;
 
-public class MainActivity extends BaseActivity {
+public class MainActivity extends BaseVbActivity<ActivityMainBinding> {
 
-    private BottomNavigationView mBottomNav;
-    private ViewPager mVp;
     List<Fragment> fragments = new ArrayList<>();
-    @Override
-    protected int getLayoutResID() {
-        return R.layout.activity_main;
-    }
 
     public boolean useCacheConfig = false;
 
@@ -45,18 +35,15 @@ public class MainActivity extends BaseActivity {
             useCacheConfig = bundle.getBoolean("useCache", false);
         }
 
-        mBottomNav = findViewById(R.id.bottom_nav);
-        mVp = findViewById(R.id.vp);
-
         initVp();
-        mBottomNav.setOnNavigationItemSelectedListener(menuItem -> {
-            mVp.setCurrentItem(menuItem.getOrder(), false);
+        mBinding.bottomNav.setOnNavigationItemSelectedListener(menuItem -> {
+            mBinding.vp.setCurrentItem(menuItem.getOrder(), false);
             return true;
         });
-        mVp.addOnPageChangeListener(new ViewPager.SimpleOnPageChangeListener() {
+        mBinding.vp.addOnPageChangeListener(new ViewPager.SimpleOnPageChangeListener() {
             @Override
             public void onPageSelected(int position) {
-                mBottomNav.getMenu().getItem(position).setChecked(true);
+                mBinding.bottomNav.getMenu().getItem(position).setChecked(true);
             }
         });
     }
@@ -64,7 +51,7 @@ public class MainActivity extends BaseActivity {
     private void initVp() {
         fragments.add(new HomeFragment());
         fragments.add(new MyFragment());
-        mVp.setAdapter(new FragmentPagerAdapter(getSupportFragmentManager()) {
+        mBinding.vp.setAdapter(new FragmentPagerAdapter(getSupportFragmentManager()) {
             @NonNull
             @Override
             public Fragment getItem(int position) {
@@ -76,17 +63,48 @@ public class MainActivity extends BaseActivity {
                 return fragments.size();
             }
         });
-        mVp.setOffscreenPageLimit(fragments.size());
+        mBinding.vp.setOffscreenPageLimit(fragments.size());
     }
 
     private long exitTime = 0L;
+
     @Override
     public void onBackPressed() {
+        if (mBinding.vp.getCurrentItem() == 1) {
+            mBinding.vp.setCurrentItem(0);
+            return;
+        }
+        HomeFragment homeFragment = (HomeFragment) fragments.get(0);
+        if (!homeFragment.isAdded()) {// 资源不足销毁重建时未挂载到activity时getChildFragmentManager会崩溃
+            confirmExit();
+            return;
+        }
+        List<BaseLazyFragment> childFragments = homeFragment.getAllFragments();
+        if (childFragments.isEmpty()) {//加载中(没有tab)
+            confirmExit();
+            return;
+        }
+        Fragment fragment = childFragments.get(homeFragment.getTabIndex());
+        if (fragment instanceof GridFragment) {// 首页数据源动态加载的tab
+            GridFragment item = (GridFragment) fragment;
+            if (!item.restoreView()) {// 有回退的view,先回退(AList等文件夹列表),没有可回退的,返到主页tab
+                if (!homeFragment.scrollToFirstTab()){
+                    confirmExit();
+                }
+            }
+        } else {
+            confirmExit();
+        }
+    }
+
+    private void confirmExit() {
         if (System.currentTimeMillis() - exitTime > 2000) {
             ToastUtils.showShort("再按一次退出程序");
             exitTime = System.currentTimeMillis();
         } else {
             ActivityUtils.finishAllActivities(true);
+            android.os.Process.killProcess(android.os.Process.myPid());
+            System.exit(0);
         }
     }
 

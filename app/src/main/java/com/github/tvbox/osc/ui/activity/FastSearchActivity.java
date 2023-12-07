@@ -1,8 +1,12 @@
 package com.github.tvbox.osc.ui.activity;
 
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.os.Bundle;
+import android.os.Handler;
+import android.text.Editable;
 import android.text.TextUtils;
+import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -19,6 +23,7 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.angcyo.tablayout.DslTabLayout;
 import com.angcyo.tablayout.DslTabLayoutConfig;
+import com.blankj.utilcode.util.GsonUtils;
 import com.blankj.utilcode.util.KeyboardUtils;
 import com.blankj.utilcode.util.LogUtils;
 import com.blankj.utilcode.util.ToastUtils;
@@ -26,15 +31,24 @@ import com.chad.library.adapter.base.BaseQuickAdapter;
 import com.github.tvbox.osc.R;
 import com.github.tvbox.osc.api.ApiConfig;
 import com.github.tvbox.osc.base.BaseActivity;
+import com.github.tvbox.osc.base.BaseVbActivity;
 import com.github.tvbox.osc.bean.AbsXml;
 import com.github.tvbox.osc.bean.Movie;
 import com.github.tvbox.osc.bean.SourceBean;
+import com.github.tvbox.osc.bean.TmdbVodInfo;
 import com.github.tvbox.osc.constant.CacheConst;
+import com.github.tvbox.osc.databinding.ActivityFastSearchBinding;
 import com.github.tvbox.osc.event.RefreshEvent;
 import com.github.tvbox.osc.event.ServerEvent;
 import com.github.tvbox.osc.ui.adapter.FastListAdapter;
 import com.github.tvbox.osc.ui.adapter.FastSearchAdapter;
+import com.github.tvbox.osc.ui.adapter.SearchWordAdapter;
+import com.github.tvbox.osc.ui.dialog.SearchCheckboxDialog;
+import com.github.tvbox.osc.ui.dialog.SearchSuggestionsDialog;
+import com.github.tvbox.osc.ui.dialog.TmdbVodInfoDialog;
+import com.github.tvbox.osc.ui.widget.LinearSpacingItemDecoration;
 import com.github.tvbox.osc.util.FastClickCheckUtil;
+import com.github.tvbox.osc.util.HawkConfig;
 import com.github.tvbox.osc.util.SearchHelper;
 import com.github.tvbox.osc.util.js.JSEngine;
 import com.github.tvbox.osc.viewmodel.SourceViewModel;
@@ -43,6 +57,11 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.lxj.xpopup.XPopup;
+import com.lxj.xpopup.core.BasePopupView;
+import com.lxj.xpopup.enums.PopupAnimation;
+import com.lxj.xpopup.interfaces.OnSelectListener;
+import com.lxj.xpopup.interfaces.SimpleCallback;
 import com.lzy.okgo.OkGo;
 import com.lzy.okgo.callback.AbsCallback;
 import com.lzy.okgo.model.Response;
@@ -62,10 +81,12 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import SevenZip.Compression.LZMA.Base;
 import kotlin.Unit;
 import kotlin.jvm.functions.Function1;
 import kotlin.jvm.functions.Function4;
@@ -75,65 +96,23 @@ import kotlin.jvm.functions.Function4;
  * @date :2020/12/23
  * @description:
  */
-public class FastSearchActivity extends BaseActivity {
-    private LinearLayout llLayout;
-    private TvRecyclerView mGridView;
-    private TvRecyclerView mGridViewFilter;
-    private TvRecyclerView mGridViewWord;
+public class FastSearchActivity extends BaseVbActivity<ActivityFastSearchBinding> implements TextWatcher{
 
     SourceViewModel sourceViewModel;
-    private View mllHotSearch;
-    private View mLlSearchResult;
 
-    //    private EditText etSearch;
-//    private TextView tvSearch;
-//    private TextView tvClear;
-//    private SearchKeyboard keyboard;
-//    private TextView tvAddress;
-//    private ImageView ivQRCode;
 
     private FastSearchAdapter searchAdapter;
     private FastSearchAdapter searchAdapterFilter;
-    private FastListAdapter spListAdapter;
     private String searchTitle = "";
     private HashMap<String, String> spNames;
     private boolean isFilterMode = false;
     private String searchFilterKey = "";    // 过滤的key
     private HashMap<String, ArrayList<Movie.Video>> resultVods; // 搜索结果
-    private List<String> quickSearchWord = new ArrayList<>();
-    private HashMap<String, String> mCheckSources = null;
+    private static HashMap<String, String> mCheckSources = null;
     private List<Runnable> pauseRunnable = null;
-
-    private View.OnFocusChangeListener focusChangeListener = new View.OnFocusChangeListener() {
-        @Override
-        public void onFocusChange(View itemView, boolean hasFocus) {
-            try {
-                if (!hasFocus) {
-                    spListAdapter.onLostFocus(itemView);
-                } else {
-                    int ret = spListAdapter.onSetFocus(itemView);
-                    if (ret < 0) return;
-                    TextView v = (TextView) itemView;
-                    String sb = v.getText().toString();
-                    filterResult(sb);
-                }
-            } catch (Exception e) {
-                Toast.makeText(FastSearchActivity.this, e.toString(), Toast.LENGTH_SHORT).show();
-            }
-
-        }
-    };
-    private EditText mEtSearch;
-    private DslTabLayout mSiteTabs;
-    private TagFlowLayout mFlHistory;
-    private TagFlowLayout mFlHot;
-    private LinearLayout mLlHistory;
-    private List<String> mSearchHistory = new ArrayList<>();
-
-    @Override
-    protected int getLayoutResID() {
-        return R.layout.activity_fast_search;
-    }
+    private SearchSuggestionsDialog mSearchSuggestionsDialog;
+    private SearchCheckboxDialog mSearchCheckboxDialog;
+    private SearchWordAdapter mSearchWordAdapter;
 
     @Override
     protected void init() {
@@ -142,102 +121,18 @@ public class FastSearchActivity extends BaseActivity {
         initView();
         initViewModel();
         initData();
-        initHotAndHistorySearch();
-    }
-
-    private void hideHotAndHistorySearch(boolean isHide){
-        if(isHide){
-            mllHotSearch.setVisibility(View.GONE);
-            mLlSearchResult.setVisibility(View.VISIBLE);
-        }else{
-            mllHotSearch.setVisibility(View.VISIBLE);
-            mLlSearchResult.setVisibility(View.GONE);
-        }
-    }
-
-    private void initHotAndHistorySearch(){
-
-        // 历史搜索
-        mSearchHistory = Hawk.get(CacheConst.HISTORY_SEARCH, new ArrayList<>());
-        if (mSearchHistory.size() > 0){
-            mLlHistory.setVisibility(View.VISIBLE);
-        }
-        mFlHistory.setAdapter(new TagAdapter<String>(mSearchHistory)
-        {
-            @Override
-            public View getView(FlowLayout parent, int position, String s)
-            {
-                TextView tv = (TextView) LayoutInflater.from(FastSearchActivity.this).inflate(R.layout.item_search_word_hot,
-                        mFlHistory, false);
-                tv.setText(s);
-                return tv;
-            }
-        });
-
-        mFlHistory.setOnTagClickListener((view, position, parent) -> {
-            search(mSearchHistory.get(position));
-            return true;
-        });
-
+        //历史搜索
+        initHistorySearch();
         // 热门搜索
         getHotWords();
     }
 
-    /**
-     * 热门搜索
-     */
-    private void getHotWords(){
-        // 加载热词
-        OkGo.<String>get("https://node.video.qq.com/x/api/hot_search")
-//        OkGo.<String>get("https://api.web.360kan.com/v1/rank")
-//                .params("cat", "1")
-                .params("channdlId", "0")
-                .params("_", System.currentTimeMillis())
-                .execute(new AbsCallback<String>() {
-                    @Override
-                    public void onSuccess(Response<String> response) {
-                        try {
-                            ArrayList<String> hots = new ArrayList<>();
-                            JsonArray itemList = JsonParser.parseString(response.body()).getAsJsonObject().get("data").getAsJsonObject().get("mapResult").getAsJsonObject().get("0").getAsJsonObject().get("listInfo").getAsJsonArray();
-//                            JsonArray itemList = JsonParser.parseString(response.body()).getAsJsonObject().get("data").getAsJsonArray();
-                            for (JsonElement ele : itemList) {
-                                JsonObject obj = (JsonObject) ele;
-                                hots.add(obj.get("title").getAsString().trim().replaceAll("<|>|《|》|-", "").split(" ")[0]);
-                            }
-                            mFlHot.setAdapter(new TagAdapter<String>(hots)
-                            {
-                                @Override
-                                public View getView(FlowLayout parent, int position, String s)
-                                {
-                                    TextView tv = (TextView) LayoutInflater.from(FastSearchActivity.this).inflate(R.layout.item_search_word_hot,
-                                            mFlHot, false);
-                                    tv.setText(s);
-                                    return tv;
-                                }
-                            });
-
-                            mFlHot.setOnTagClickListener((view, position, parent) -> {
-                                search(hots.get(position));
-                                return true;
-                            });
-                        } catch (Throwable th) {
-                            th.printStackTrace();
-                        }
-                    }
-
-                    @Override
-                    public String convertResponse(okhttp3.Response response) throws Throwable {
-                        return response.body().string();
-                    }
-                });
-
-    }
 
     @Override
     protected void onResume() {
         super.onResume();
         if (pauseRunnable != null && pauseRunnable.size() > 0) {
-            searchExecutorService = Executors.newFixedThreadPool(5);
+            searchExecutorService = Executors.newFixedThreadPool(10);
             allRunCount.set(pauseRunnable.size());
             for (Runnable runnable : pauseRunnable) {
                 searchExecutorService.execute(runnable);
@@ -248,111 +143,41 @@ public class FastSearchActivity extends BaseActivity {
     }
 
     private void initView() {
-        EventBus.getDefault().register(this);
-        //搜索建议模块(热门/历史)
-        mllHotSearch = findViewById(R.id.llSearchSuggest);
-        mLlSearchResult = findViewById(R.id.llSearchResult);
-        mLlHistory = findViewById(R.id.ll_history);
-        mFlHistory = findViewById(R.id.fl_history);
-        mFlHot = findViewById(R.id.fl_hot);
-        //左侧的聚合站点tab
-        mSiteTabs = findViewById(R.id.tab_layout);
 
-        mEtSearch = findViewById(R.id.et_search);
-
-        llLayout = findViewById(R.id.llLayout);
-        mGridView = findViewById(R.id.mGridView);
-        mGridViewWord = findViewById(R.id.mGridViewWord);
-        mGridViewFilter = findViewById(R.id.mGridViewFilter);
-
-        mGridViewWord.setHasFixedSize(true);
-        mGridViewWord.setLayoutManager(new V7LinearLayoutManager(this.mContext, 1, false));
-        spListAdapter = new FastListAdapter();
-        mGridViewWord.setAdapter(spListAdapter);
-
-
-//        mGridViewWord.setFocusable(true);
-//        mGridViewWord.setOnFocusChangeListener(new View.OnFocusChangeListener() {
-//            @Override
-//            public void onFocusChange(View itemView, boolean hasFocus) {}
-//        });
-
-        mEtSearch.setOnEditorActionListener((v, actionId, event) -> {
+        mBinding.etSearch.setOnEditorActionListener((v, actionId, event) -> {
             if (actionId == EditorInfo.IME_ACTION_SEARCH) {
-                search(mEtSearch.getText().toString());
+                search(mBinding.etSearch.getText().toString());
                 return true;
             }
             return false;
         });
 
+        mBinding.etSearch.addTextChangedListener(this);
+
         findViewById(R.id.iv_filter).setOnClickListener(view -> {
-            ToastUtils.showShort("等候开放");
+            filterSearchSource();
         });
         findViewById(R.id.iv_back).setOnClickListener(view -> {
             finish();
         });
         findViewById(R.id.iv_search).setOnClickListener(view -> {
-            String s = mEtSearch.getText().toString();
-            if (TextUtils.isEmpty(s)) {
-                ToastUtils.showShort("请输入搜索内容");
-            }else {
-                search(s);
-            }
+            search(mBinding.etSearch.getText().toString());
         });
 
-
-        mGridViewWord.addOnChildAttachStateChangeListener(new RecyclerView.OnChildAttachStateChangeListener() {
-            @Override
-            public void onChildViewAttachedToWindow(@NonNull View child) {
-                child.setFocusable(true);
-                child.setOnFocusChangeListener(focusChangeListener);
-                TextView t = (TextView) child;
-                if (t.getText() == "全部显示") {
-                    t.requestFocus();
-                }
-//                if (child.isFocusable() && null == child.getOnFocusChangeListener()) {
-//                    child.setOnFocusChangeListener(focusChangeListener);
-//                }
-            }
-
-            @Override
-            public void onChildViewDetachedFromWindow(@NonNull View view) {
-                view.setOnFocusChangeListener(null);
-            }
-        });
-
-        spListAdapter.setOnItemClickListener(new BaseQuickAdapter.OnItemClickListener() {
-            @Override
-            public void onItemClick(BaseQuickAdapter adapter, View view, int position) {
-                String spName = spListAdapter.getItem(position);
-                filterResult(spName);
-            }
-        });
-
-        mSiteTabs.configTabLayoutConfig(new Function1<DslTabLayoutConfig, Unit>() {
-            @Override
-            public Unit invoke(DslTabLayoutConfig dslTabLayoutConfig) {
-                dslTabLayoutConfig.setOnSelectViewChange(new Function4<View, List<? extends View>, Boolean, Boolean, Unit>() {
-                    @Override
-                    public Unit invoke(View view, List<? extends View> views, Boolean aBoolean, Boolean aBoolean2) {
-                        TextView tvItem = (TextView) views.get(0);
-                        String spName = tvItem.getText().toString();
-                        LogUtils.d(spName);
-                        filterResult(spName);
-                        return null;
-                    }
-                });
+        mBinding.tabLayout.configTabLayoutConfig(dslTabLayoutConfig -> {
+            dslTabLayoutConfig.setOnSelectViewChange((view, views, aBoolean, aBoolean2) -> {
+                TextView tvItem = (TextView) views.get(0);
+                filterResult(tvItem.getText().toString());
                 return null;
-            }
-
-
+            });
+            return null;
         });
 
-        mGridView.setHasFixedSize(true);
-        mGridView.setLayoutManager(new LinearLayoutManager(this.mContext));
+        mBinding.mGridView.setHasFixedSize(true);
+        mBinding.mGridView.setLayoutManager(new LinearLayoutManager(this.mContext));
 
         searchAdapter = new FastSearchAdapter();
-        mGridView.setAdapter(searchAdapter);
+        mBinding.mGridView.setAdapter(searchAdapter);
 
         searchAdapter.setOnItemClickListener(new BaseQuickAdapter.OnItemClickListener() {
             @Override
@@ -378,9 +203,9 @@ public class FastSearchActivity extends BaseActivity {
         });
 
 
-        mGridViewFilter.setLayoutManager(new LinearLayoutManager(mContext));
+        mBinding.mGridViewFilter.setLayoutManager(new LinearLayoutManager(mContext));
         searchAdapterFilter = new FastSearchAdapter();
-        mGridViewFilter.setAdapter(searchAdapterFilter);
+        mBinding.mGridViewFilter.setAdapter(searchAdapterFilter);
         searchAdapterFilter.setOnItemClickListener(new BaseQuickAdapter.OnItemClickListener() {
             @Override
             public void onItemClick(BaseQuickAdapter adapter, View view, int position) {
@@ -404,21 +229,70 @@ public class FastSearchActivity extends BaseActivity {
             }
         });
 
-        setLoadSir(llLayout);
+        searchAdapter.setOnItemLongClickListener((adapter, view, position) -> {
+            Movie.Video video = searchAdapter.getData().get(position);
+            if (!TextUtils.isEmpty(video.name)){
+                queryFromTMDB(video.name);
+            }
+            return true;
+        });
+        searchAdapterFilter.setOnItemLongClickListener((adapter, view, position) -> {
+            Movie.Video video = searchAdapterFilter.getData().get(position);
+            if (!TextUtils.isEmpty(video.name)){
+                queryFromTMDB(video.name);
+            }
+            return true;
+        });
+
+        mSearchWordAdapter = new SearchWordAdapter();
+        mBinding.rvFenci.addItemDecoration(new LinearSpacingItemDecoration(20,true));
+        mBinding.rvFenci.setAdapter(mSearchWordAdapter);
+        mSearchWordAdapter.setOnItemClickListener((adapter, view, position) -> {
+            search(mSearchWordAdapter.getData().get(position));
+        });
+
+        setLoadSir(mBinding.llLayout);
     }
 
     private void initViewModel() {
         sourceViewModel = new ViewModelProvider(this).get(SourceViewModel.class);
     }
 
+    /**
+     * 指定搜索源(过滤)
+     */
+    private void filterSearchSource(){
+        if (mSearchCheckboxDialog == null) {
+            List<SourceBean> allSourceBean = ApiConfig.get().getSourceBeanList();
+            List<SourceBean> searchAbleSource = new ArrayList<>();
+            for(SourceBean sourceBean : allSourceBean) {
+                if (sourceBean.isSearchable()) {
+                    searchAbleSource.add(sourceBean);
+                }
+            }
+            mSearchCheckboxDialog = new SearchCheckboxDialog(FastSearchActivity.this, searchAbleSource, mCheckSources);
+        }
+        mSearchCheckboxDialog.setOnDismissListener(new DialogInterface.OnDismissListener() {
+            @Override
+            public void onDismiss(DialogInterface dialog) {
+                dialog.dismiss();
+            }
+        });
+        mSearchCheckboxDialog.show();
+    }
+
+    public static void setCheckedSourcesForSearch(HashMap<String,String> checkedSources) {
+        mCheckSources = checkedSources;
+    }
+
     private void filterResult(String spName) {
         if (spName == "全部显示") {
-            mGridView.setVisibility(View.VISIBLE);
-            mGridViewFilter.setVisibility(View.GONE);
+            mBinding.mGridView.setVisibility(View.VISIBLE);
+            mBinding.mGridViewFilter.setVisibility(View.GONE);
             return;
         }
-        mGridView.setVisibility(View.GONE);
-        mGridViewFilter.setVisibility(View.VISIBLE);
+        mBinding.mGridView.setVisibility(View.GONE);
+        mBinding.mGridViewFilter.setVisibility(View.VISIBLE);
         String key = spNames.get(spName);
         if (key.isEmpty()) return;
 
@@ -430,7 +304,7 @@ public class FastSearchActivity extends BaseActivity {
     }
 
     private void fenci() {
-        if (!quickSearchWord.isEmpty()) return; // 如果经有分词了，不再进行二次分词
+        List<String> quickSearchWord = new ArrayList<>();
         // 分词
         OkGo.<String>get("http://api.pullword.com/get.php?source=" + URLEncoder.encode(searchTitle) + "&param1=0&param2=0&json=1")
                 .tag("fenci")
@@ -447,7 +321,6 @@ public class FastSearchActivity extends BaseActivity {
                     @Override
                     public void onSuccess(Response<String> response) {
                         String json = response.body();
-                        quickSearchWord.clear();
                         try {
                             for (JsonElement je : new Gson().fromJson(json, JsonArray.class)) {
                                 quickSearchWord.add(je.getAsJsonObject().get("t").getAsString());
@@ -456,8 +329,7 @@ public class FastSearchActivity extends BaseActivity {
                             th.printStackTrace();
                         }
                         quickSearchWord.addAll(SearchHelper.splitWords(searchTitle));
-                        List<String> words = new ArrayList<>(new HashSet<>(quickSearchWord));
-                        EventBus.getDefault().post(new RefreshEvent(RefreshEvent.TYPE_QUICK_SEARCH_WORD, words));
+                        mSearchWordAdapter.setNewData(quickSearchWord);
                     }
 
                     @Override
@@ -472,9 +344,163 @@ public class FastSearchActivity extends BaseActivity {
         Intent intent = getIntent();
         if (intent != null && intent.hasExtra("title")) {
             String title = intent.getStringExtra("title");
-            mEtSearch.setText(title);
-            showLoading();
-            search(title);
+            if (!TextUtils.isEmpty(title)){
+                showLoading();
+                search(title);
+            }
+        }
+    }
+
+
+    private void hideHotAndHistorySearch(boolean isHide){
+        if(isHide){
+            mBinding.llSearchSuggest.setVisibility(View.GONE);
+            mBinding.llSearchResult.setVisibility(View.VISIBLE);
+        }else{
+            mBinding.llSearchSuggest.setVisibility(View.VISIBLE);
+            mBinding.llSearchResult.setVisibility(View.GONE);
+        }
+    }
+
+    private void initHistorySearch(){
+
+        List<String> mSearchHistory = Hawk.get(CacheConst.HISTORY_SEARCH, new ArrayList<>());
+
+        mBinding.llHistory.setVisibility(mSearchHistory.size() > 0 ? View.VISIBLE : View.GONE);
+        mBinding.flHistory.setAdapter(new TagAdapter<String>(mSearchHistory)
+        {
+            @Override
+            public View getView(FlowLayout parent, int position, String s)
+            {
+                TextView tv = (TextView) LayoutInflater.from(FastSearchActivity.this).inflate(R.layout.item_search_word_hot,
+                        mBinding.flHistory, false);
+                tv.setText(s);
+                return tv;
+            }
+        });
+
+        mBinding.flHistory.setOnTagClickListener((view, position, parent) -> {
+            search(mSearchHistory.get(position));
+            return true;
+        });
+
+        findViewById(R.id.iv_clear_history).setOnClickListener(view -> {
+            Hawk.put(CacheConst.HISTORY_SEARCH, new ArrayList<>());
+            //FlowLayout及其adapter貌似没有清空数据的api,简单粗暴重置
+            view.postDelayed(this::initHistorySearch,300);
+        });
+    }
+
+    /**
+     * 热门搜索
+     */
+    private void getHotWords(){
+        // 加载热词
+        OkGo.<String>get("https://node.video.qq.com/x/api/hot_search")
+//        OkGo.<String>get("https://api.web.360kan.com/v1/rank")
+//                .params("cat", "1")
+                .params("channdlId", "0")
+                .params("_", System.currentTimeMillis())
+                .execute(new AbsCallback<String>() {
+                    @Override
+                    public void onSuccess(Response<String> response) {
+                        try {
+                            ArrayList<String> hots = new ArrayList<>();
+                            JsonArray itemList = JsonParser.parseString(response.body()).getAsJsonObject().get("data").getAsJsonObject().get("mapResult").getAsJsonObject().get("0").getAsJsonObject().get("listInfo").getAsJsonArray();
+//                            JsonArray itemList = JsonParser.parseString(response.body()).getAsJsonObject().get("data").getAsJsonArray();
+                            for (JsonElement ele : itemList) {
+                                JsonObject obj = (JsonObject) ele;
+                                hots.add(obj.get("title").getAsString().trim().replaceAll("<|>|《|》|-", "").split(" ")[0]);
+                            }
+                            mBinding.flHot.setAdapter(new TagAdapter<String>(hots)
+                            {
+                                @Override
+                                public View getView(FlowLayout parent, int position, String s)
+                                {
+                                    TextView tv = (TextView) LayoutInflater.from(FastSearchActivity.this).inflate(R.layout.item_search_word_hot,
+                                            mBinding.flHot, false);
+                                    tv.setText(s);
+                                    return tv;
+                                }
+                            });
+
+                            mBinding.flHot.setOnTagClickListener((view, position, parent) -> {
+                                search(hots.get(position));
+                                return true;
+                            });
+                        } catch (Throwable th) {
+                            th.printStackTrace();
+                        }
+                    }
+
+                    @Override
+                    public String convertResponse(okhttp3.Response response) throws Throwable {
+                        return response.body().string();
+                    }
+                });
+
+    }
+
+
+    /**
+     * 联想搜索
+     */
+    private void getSuggest(String text){
+        // 加载热词
+        OkGo.<String>get("https://suggest.video.iqiyi.com/?if=mobile&key=" + text)
+                .execute(new AbsCallback<String>() {
+                    @Override
+                    public void onSuccess(Response<String> response) {
+                        List<String> titles = new ArrayList<>();
+                        try {
+                            JsonObject json = JsonParser.parseString(response.body()).getAsJsonObject();
+                            JsonArray datas = json.get("data").getAsJsonArray();
+                            for (JsonElement data : datas) {
+                                JsonObject item = (JsonObject)data;
+                                titles.add(item.get("name").getAsString().trim());
+                            }
+                        } catch (Throwable th) {
+                            LogUtils.d(th.toString());
+                        }
+                        if (!titles.isEmpty()){
+                            showSuggestDialog(titles);
+                        }
+                    }
+
+                    @Override
+                    public String convertResponse(okhttp3.Response response) throws Throwable {
+                        return response.body().string();
+                    }
+                });
+
+    }
+
+    private void showSuggestDialog(List<String> list){
+        if (mSearchSuggestionsDialog==null){
+            mSearchSuggestionsDialog = new SearchSuggestionsDialog(FastSearchActivity.this, list, new OnSelectListener() {
+                @Override
+                public void onSelect(int position, String text) {
+                    LogUtils.d("搜索:"+text);
+                    mSearchSuggestionsDialog.dismissWith(() -> search(text));
+                }
+            });
+
+            new XPopup.Builder(FastSearchActivity.this)
+                    .atView(mBinding.etSearch)
+                    .notDismissWhenTouchInView(mBinding.etSearch)
+                    .isViewMode(true)      //开启View实现
+                    .isRequestFocus(false) //不强制焦点
+                    .setPopupCallback(new SimpleCallback() {
+                        @Override
+                        public void onDismiss(BasePopupView popupView) {// 弹窗关闭了就置空对象,下次重新new
+                            super.onDismiss(popupView);
+                            mSearchSuggestionsDialog = null;
+                        }
+                    })
+                    .asCustom(mSearchSuggestionsDialog)
+                    .show();
+        }else {// 不为空说明弹窗为打开状态(关闭就置空了).直接刷新数据
+            mSearchSuggestionsDialog.updateSuggestions(list);
         }
     }
 
@@ -523,25 +549,36 @@ public class FastSearchActivity extends BaseActivity {
             ToastUtils.showShort("请输入搜索内容");
             return;
         }
-        saveSearchHistory(title);
 
+        //先移除监听,避免重新设置要搜索的文字触发搜索建议并弹窗
+        mBinding.etSearch.removeTextChangedListener(this);
+        mBinding.etSearch.setText(title);
+        mBinding.etSearch.setSelection(title.length());
+        mBinding.etSearch.addTextChangedListener(this);
+
+        if (mSearchSuggestionsDialog!=null && mSearchSuggestionsDialog.isShow()){
+            mSearchSuggestionsDialog.dismiss();
+        }
+
+        if (!Hawk.get(HawkConfig.PRIVATE_BROWSING, false)) {//无痕浏览不存搜索历史
+            saveSearchHistory(title);
+        }
         hideHotAndHistorySearch(true);
         KeyboardUtils.hideSoftInput(this);
         cancel();
         showLoading();
         this.searchTitle = title;
-        fenci();
-        mGridView.setVisibility(View.INVISIBLE);
-        mGridViewFilter.setVisibility(View.GONE);
+        //fenci();
+        mBinding.mGridView.setVisibility(View.INVISIBLE);
+        mBinding.mGridViewFilter.setVisibility(View.GONE);
         searchAdapter.setNewData(new ArrayList<>());
         searchAdapterFilter.setNewData(new ArrayList<>());
 
-        spListAdapter.reset();
-        mSiteTabs.removeAllViews();
         resultVods.clear();
         searchFilterKey = "";
         isFilterMode = false;
         spNames.clear();
+        mBinding.tabLayout.removeAllViews();
 
         searchResult();
     }
@@ -574,7 +611,7 @@ public class FastSearchActivity extends BaseActivity {
             searchAdapterFilter.setNewData(new ArrayList<>());
             allRunCount.set(0);
         }
-        searchExecutorService = Executors.newFixedThreadPool(5);
+        searchExecutorService = Executors.newFixedThreadPool(10);
         List<SourceBean> searchRequestList = new ArrayList<>();
         searchRequestList.addAll(ApiConfig.get().getSourceBeanList());
         SourceBean home = ApiConfig.get().getHomeSourceBean();
@@ -583,12 +620,9 @@ public class FastSearchActivity extends BaseActivity {
 
 
         ArrayList<String> siteKey = new ArrayList<>();
-        ArrayList<String> hots = new ArrayList<>();
 
-        spListAdapter.setNewData(hots);
-        spListAdapter.addData("全部显示");
-        mSiteTabs.addView(getSiteTextView("全部显示"));
-        mSiteTabs.setCurrentItem(0, true,false);
+        mBinding.tabLayout.addView(getSiteTextView("全部显示"));
+        mBinding.tabLayout.setCurrentItem(0, true,false);
         for (SourceBean bean : searchRequestList) {
             if (!bean.isSearchable()) {
                 continue;
@@ -615,27 +649,29 @@ public class FastSearchActivity extends BaseActivity {
         }
     }
 
-    // 向过滤栏添加有结果的spname
+    /**
+     * 添加到最后面并返回最后一个key
+     * @param key
+     * @return
+     */
     private String addWordAdapterIfNeed(String key) {
         try {
             String name = "";
             for (String n : spNames.keySet()) {
-                if (spNames.get(n) == key) {
+                if (Objects.equals(spNames.get(n), key)) {
                     name = n;
                 }
             }
-            if (name == "") return key;
+            if (Objects.equals(name, "")) return key;
 
-            List<String> names = spListAdapter.getData();
-
-            for (int i = 0; i < names.size(); ++i) {
-                if (name == names.get(i)) {
+            for (int i = 0; i < mBinding.tabLayout.getChildCount(); ++i) {
+                TextView item = (TextView)mBinding.tabLayout.getChildAt(i);
+                if (Objects.equals(name, item.getText().toString())) {
                     return key;
                 }
             }
 
-            spListAdapter.addData(name);
-            mSiteTabs.addView(getSiteTextView(name));
+            mBinding.tabLayout.addView(getSiteTextView(name));
             return key;
         } catch (Exception e) {
             return key;
@@ -665,7 +701,7 @@ public class FastSearchActivity extends BaseActivity {
                     resultVods.put(video.sourceKey, new ArrayList<Movie.Video>());
                 }
                 resultVods.get(video.sourceKey).add(video);
-                if (video.sourceKey != lastSourceKey) {
+                if (video.sourceKey != lastSourceKey) {// 添加到最后面并记录最后一个key用于下次判断
                     lastSourceKey = this.addWordAdapterIfNeed(video.sourceKey);
                 }
             }
@@ -675,7 +711,7 @@ public class FastSearchActivity extends BaseActivity {
             } else {
                 showSuccess();
                 if (!isFilterMode)
-                    mGridView.setVisibility(View.VISIBLE);
+                    mBinding.mGridView.setVisibility(View.VISIBLE);
                 searchAdapter.setNewData(data);
             }
         }
@@ -691,6 +727,7 @@ public class FastSearchActivity extends BaseActivity {
 
     private void cancel() {
         OkGo.getInstance().cancelTag("search");
+        OkGo.getInstance().cancelTag("queryFromTMDB");
     }
 
     @Override
@@ -706,6 +743,72 @@ public class FastSearchActivity extends BaseActivity {
         } catch (Throwable th) {
             th.printStackTrace();
         }
-        EventBus.getDefault().unregister(this);
+    }
+
+    @Override
+    public void beforeTextChanged(CharSequence charSequence, int i, int i1, int i2) {
+
+    }
+
+    @Override
+    public void onTextChanged(CharSequence charSequence, int i, int i1, int i2) {
+
+    }
+
+    @Override
+    public void afterTextChanged(Editable editable) {
+        String text = editable.toString();
+        if (TextUtils.isEmpty(text) && mSearchSuggestionsDialog!=null){
+            mSearchSuggestionsDialog.dismiss();
+        }else {
+            getSuggest(text);
+        }
+    }
+
+    /**
+     * 查询影片在TMDB的信息
+     * @param vodName
+     */
+    private void queryFromTMDB(String vodName){
+        OkGo.getInstance().cancelTag("queryFromTMDB");
+
+        String token = Hawk.get(HawkConfig.TOKEN_TMDB, "");
+        if (TextUtils.isEmpty(token)){
+            return;
+        }
+        showLoadingDialog();
+        OkGo.<String>get("https://api.themoviedb.org/3/search/movie?query="+vodName+"&include_adult=false&language=zh-ZH&page=1")
+                .headers("Authorization","Bearer "+token)
+                .tag("queryFromTMDB")
+                .execute(new AbsCallback<String>() {
+                    @Override
+                    public String convertResponse(okhttp3.Response response) throws Throwable {
+                        if (response.body() != null) {
+                            return response.body().string();
+                        } else {
+                            throw new IllegalStateException("网络请求错误");
+                        }
+                    }
+
+                    @Override
+                    public void onSuccess(Response<String> response) {
+                        dismissLoadingDialog();
+                        String json = response.body();
+                        TmdbVodInfo tmdbVodInfo = GsonUtils.fromJson(json, TmdbVodInfo.class);
+                        if (!tmdbVodInfo.getResults().isEmpty()){
+                            new XPopup.Builder(FastSearchActivity.this)
+                                    .asCustom(new TmdbVodInfoDialog(FastSearchActivity.this,tmdbVodInfo.getResults().get(0)))
+                                    .show();
+                        }else {
+                            ToastUtils.showShort("未查询到相关信息");
+                        }
+                    }
+
+                    @Override
+                    public void onError(Response<String> response) {
+                        super.onError(response);
+                        dismissLoadingDialog();
+                    }
+                });
     }
 }

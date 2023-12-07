@@ -2,8 +2,9 @@ package com.github.tvbox.osc.ui.fragment;
 
 import android.app.Activity;
 import android.content.DialogInterface;
-import android.content.Intent;
+import android.os.Build;
 import android.os.Bundle;
+import android.text.TextUtils;
 import android.view.View;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -13,12 +14,11 @@ import androidx.recyclerview.widget.DiffUtil;
 
 import com.blankj.utilcode.util.SPUtils;
 import com.blankj.utilcode.util.ToastUtils;
+import com.github.tvbox.osc.BuildConfig;
 import com.github.tvbox.osc.R;
 import com.github.tvbox.osc.api.ApiConfig;
-import com.github.tvbox.osc.base.BaseActivity;
 import com.github.tvbox.osc.base.BaseLazyFragment;
 import com.github.tvbox.osc.bean.IJKCode;
-import com.github.tvbox.osc.bean.SourceBean;
 import com.github.tvbox.osc.constant.CacheConst;
 import com.github.tvbox.osc.event.RefreshEvent;
 import com.github.tvbox.osc.player.thirdparty.RemoteTVBox;
@@ -26,9 +26,8 @@ import com.github.tvbox.osc.player.thirdparty.RemoteTVBox;
 import com.github.tvbox.osc.ui.activity.MainActivity;
 import com.github.tvbox.osc.ui.activity.SettingActivity;
 import com.github.tvbox.osc.ui.adapter.SelectDialogAdapter;
-import com.github.tvbox.osc.ui.dialog.AboutDialog;
-import com.github.tvbox.osc.ui.dialog.ApiDialog;
 import com.github.tvbox.osc.ui.dialog.BackupDialog;
+import com.github.tvbox.osc.ui.dialog.LiveApiDialog;
 import com.github.tvbox.osc.ui.dialog.SearchRemoteTvDialog;
 import com.github.tvbox.osc.ui.dialog.SelectDialog;
 import com.github.tvbox.osc.ui.dialog.XWalkInitDialog;
@@ -36,18 +35,16 @@ import com.github.tvbox.osc.util.FastClickCheckUtil;
 import com.github.tvbox.osc.util.FileUtils;
 import com.github.tvbox.osc.util.HawkConfig;
 import com.github.tvbox.osc.util.HistoryHelper;
-import com.github.tvbox.osc.util.LOG;
 import com.github.tvbox.osc.util.OkGoHelper;
 import com.github.tvbox.osc.util.PlayerHelper;
+import com.github.tvbox.osc.util.Utils;
+import com.google.android.material.switchmaterial.SwitchMaterial;
+import com.hjq.bar.TitleBar;
 import com.hjq.permissions.OnPermissionCallback;
 import com.hjq.permissions.Permission;
 import com.hjq.permissions.XXPermissions;
 import com.lxj.xpopup.XPopup;
-import com.lxj.xpopup.interfaces.OnSelectListener;
-import com.lzy.okgo.OkGo;
-import com.lzy.okgo.callback.FileCallback;
-import com.lzy.okgo.model.Progress;
-import com.lzy.okgo.model.Response;
+import com.lxj.xpopup.interfaces.OnInputConfirmListener;
 import com.orhanobut.hawk.Hawk;
 
 import org.greenrobot.eventbus.EventBus;
@@ -78,6 +75,7 @@ public class ModelSettingFragment extends BaseLazyFragment {
     private TextView tvHistoryNum;
     private TextView tvFastSearchText;
     private TextView tvIjkCachePlay;
+    TextView tvLongPressSpeed;
 
     public static ModelSettingFragment newInstance() {
         return new ModelSettingFragment().setArguments();
@@ -94,6 +92,11 @@ public class ModelSettingFragment extends BaseLazyFragment {
 
     @Override
     protected void init() {
+        TitleBar titleBar = findViewById(R.id.title_bar);
+        titleBar.getLeftView().setOnClickListener(view -> {
+            SettingActivity activity = (SettingActivity) mActivity;
+            activity.onBackPressed();
+        });
         tvFastSearchText = findViewById(R.id.showFastSearchText);
         tvFastSearchText.setText(Hawk.get(HawkConfig.FAST_SEARCH_MODE, false) ? "已开启" : "已关闭");
 
@@ -120,6 +123,62 @@ public class ModelSettingFragment extends BaseLazyFragment {
         tvPlay.setText(PlayerHelper.getPlayerName(Hawk.get(HawkConfig.PLAY_TYPE, 0)));
         tvRender.setText(PlayerHelper.getRenderName(Hawk.get(HawkConfig.PLAY_RENDER, 0)));
         tvIjkCachePlay.setText(Hawk.get(HawkConfig.IJK_CACHE_PLAY, false) ? "开启" : "关闭");
+
+        //隐私浏览
+        SwitchMaterial switchPrivate = findViewById(R.id.switchPrivateBrowsing);
+        switchPrivate.setChecked(Hawk.get(HawkConfig.PRIVATE_BROWSING, false));
+        switchPrivate.setOnClickListener(view -> {
+            boolean newConfig = !Hawk.get(HawkConfig.PRIVATE_BROWSING, false);
+            switchPrivate.setChecked(newConfig);
+            Hawk.put(HawkConfig.PRIVATE_BROWSING, newConfig);
+        });
+
+        findViewById(R.id.llLiveApi).setOnClickListener(view -> {
+            new XPopup.Builder(mContext)
+                    .autoFocusEditText(false)
+                    .asCustom(new LiveApiDialog(mActivity))
+                    .show();
+        });
+
+        //后台播放
+        View backgroundPlay = findViewById(R.id.llBackgroundPlay);
+        TextView tvBgPlayType = findViewById(R.id.tvBackgroundPlayType);
+        Integer defaultBgPlayTypePos = Hawk.get(HawkConfig.BACKGROUND_PLAY_TYPE, 0);
+
+        ArrayList<String> bgPlayTypes = new ArrayList<>();
+        bgPlayTypes.add("关闭");
+        bgPlayTypes.add("开启");
+        bgPlayTypes.add("画中画");
+        tvBgPlayType.setText(bgPlayTypes.get(defaultBgPlayTypePos));
+        backgroundPlay.setOnClickListener(view -> {
+            FastClickCheckUtil.check(view);
+            SelectDialog<String> dialog = new SelectDialog<>(mActivity);
+            dialog.setTip("请选择");
+            dialog.setAdapter(new SelectDialogAdapter.SelectDialogInterface<String>() {
+                @Override
+                public void click(String value, int pos) {
+                    tvBgPlayType.setText(value);
+                    Hawk.put(HawkConfig.BACKGROUND_PLAY_TYPE, pos);
+                }
+
+                @Override
+                public String getDisplay(String val) {
+                    return val;
+                }
+            }, new DiffUtil.ItemCallback<String>() {
+                @Override
+                public boolean areItemsTheSame(@NonNull @NotNull String oldItem, @NonNull @NotNull String newItem) {
+                    return oldItem.equals(newItem);
+                }
+
+                @Override
+                public boolean areContentsTheSame(@NonNull @NotNull String oldItem, @NonNull @NotNull String newItem) {
+                    return oldItem.equals(newItem);
+                }
+            }, bgPlayTypes,defaultBgPlayTypePos);
+            dialog.show();
+        });
+
         findViewById(R.id.llDebug).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -129,17 +188,44 @@ public class ModelSettingFragment extends BaseLazyFragment {
             }
         });
 
+        tvLongPressSpeed = findViewById(R.id.tvSpeed);
+        float beforeSpeed = SPUtils.getInstance().getFloat(CacheConst.VIDEO_SPEED, 2.0f);
+        tvLongPressSpeed.setText(String.valueOf(beforeSpeed));
         findViewById(R.id.llPressSpeed).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 String[] items = {"2.0", "3.0"};
-                float beforeSpeed = SPUtils.getInstance().getFloat(CacheConst.VIDEO_SPEED, 2.0f);
-                int defaultIndex = Arrays.asList(items).indexOf(String.valueOf(beforeSpeed));
-                new XPopup.Builder(mActivity)
-                        .asCenterList(null, items,null,defaultIndex, (position, text) -> {
-                            SPUtils.getInstance().put(CacheConst.VIDEO_SPEED, Float.parseFloat(text));
-                            ToastUtils.showShort("设置成功");
-                        }).show();
+                int defaultPos = Arrays.asList(items).indexOf(String.valueOf(beforeSpeed));
+
+                ArrayList<Integer> types = new ArrayList<>();
+                types.add(0);
+                types.add(1);
+                SelectDialog<Integer> dialog = new SelectDialog<>(mActivity);
+                dialog.setTip("请选择");
+                dialog.setAdapter(new SelectDialogAdapter.SelectDialogInterface<Integer>() {
+                    @Override
+                    public void click(Integer value, int pos) {
+                        SPUtils.getInstance().put(CacheConst.VIDEO_SPEED, Float.parseFloat(items[pos]));
+                        tvLongPressSpeed.setText(items[pos]);
+                        v.postDelayed(() -> dialog.dismiss(), 500);
+                    }
+
+                    @Override
+                    public String getDisplay(Integer val) {
+                        return items[val];
+                    }
+                }, new DiffUtil.ItemCallback<Integer>() {
+                    @Override
+                    public boolean areItemsTheSame(@NonNull @NotNull Integer oldItem, @NonNull @NotNull Integer newItem) {
+                        return oldItem.intValue() == newItem.intValue();
+                    }
+
+                    @Override
+                    public boolean areContentsTheSame(@NonNull @NotNull Integer oldItem, @NonNull @NotNull Integer newItem) {
+                        return oldItem.intValue() == newItem.intValue();
+                    }
+                }, types, defaultPos);
+                dialog.show();
             }
         });
 
@@ -166,12 +252,12 @@ public class ModelSettingFragment extends BaseLazyFragment {
             @Override
             public void onClick(View v) {
                 FastClickCheckUtil.check(v);
-                if (XXPermissions.isGranted(getContext(), Permission.Group.STORAGE)) {
+                if (XXPermissions.isGranted(mActivity, Permission.MANAGE_EXTERNAL_STORAGE)) {
                     BackupDialog dialog = new BackupDialog(mActivity);
                     dialog.show();
                 } else {
                     XXPermissions.with(mActivity)
-                            .permission(Permission.Group.STORAGE)
+                            .permission(Permission.MANAGE_EXTERNAL_STORAGE)
                             .request(new OnPermissionCallback() {
                                 @Override
                                 public void onGranted(List<String> permissions, boolean all) {
@@ -291,7 +377,7 @@ public class ModelSettingFragment extends BaseLazyFragment {
                 players.add(4);
                 players.add(5);
                 SelectDialog<Integer> dialog = new SelectDialog<>(mActivity);
-                dialog.setTip("请选择默认画面缩放");
+                dialog.setTip("请选择画面缩放");
                 dialog.setAdapter(new SelectDialogAdapter.SelectDialogInterface<Integer>() {
                     @Override
                     public void click(Integer value, int pos) {
@@ -325,7 +411,7 @@ public class ModelSettingFragment extends BaseLazyFragment {
                 int defaultPos = 0;
                 ArrayList<Integer> players = PlayerHelper.getExistPlayerTypes();
                 ArrayList<Integer> renders = new ArrayList<>();
-                for(int p = 0; p<players.size(); p++) {
+                for (int p = 0; p < players.size(); p++) {
                     renders.add(p);
                     if (players.get(p) == playerType) {
                         defaultPos = p;
@@ -407,7 +493,7 @@ public class ModelSettingFragment extends BaseLazyFragment {
                 types.add(1);
                 types.add(2);
                 SelectDialog<Integer> dialog = new SelectDialog<>(mActivity);
-                dialog.setTip("请选择首页列表数据");
+                dialog.setTip("主页内容显示");
                 dialog.setAdapter(new SelectDialogAdapter.SelectDialogInterface<Integer>() {
                     @Override
                     public void click(Integer value, int pos) {
@@ -545,10 +631,75 @@ public class ModelSettingFragment extends BaseLazyFragment {
         findViewById(R.id.llIjkCachePlay).setOnClickListener((view -> onClickIjkCachePlay(view)));
         findViewById(R.id.llClearCache).setOnClickListener((view -> {
             new XPopup.Builder(mActivity)
-                    .asConfirm("提示","缓存包括本地视频播放进度等,确定清空吗？", () -> {
+                    .isDarkTheme(Utils.isDarkTheme())
+                    .asConfirm("提示", "确定清空吗？", () -> {
                         onClickClearCache(view);
                     }).show();
         }));
+
+        View theme = findViewById(R.id.llTheme);
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q){
+            theme.setVisibility(View.GONE);
+        }
+        int oldTheme = Hawk.get(HawkConfig.THEME_TAG, 0);
+        String[] themes = {"跟随系统", "浅色", "深色"};
+        TextView tvTheme = findViewById(R.id.tvTheme);
+        tvTheme.setText(themes[oldTheme]);
+        theme.setOnClickListener((view -> {
+            FastClickCheckUtil.check(view);
+            ArrayList<Integer> types = new ArrayList<>();
+            types.add(0);
+            types.add(1);
+            types.add(2);
+            SelectDialog<Integer> dialog = new SelectDialog<>(mActivity);
+            dialog.setTip("请选择");
+            dialog.setAdapter(new SelectDialogAdapter.SelectDialogInterface<Integer>() {
+                @Override
+                public void click(Integer value, int pos) {
+                    tvTheme.setText(themes[value]);
+                    Hawk.put(HawkConfig.THEME_TAG, value);
+                }
+
+                @Override
+                public String getDisplay(Integer val) {
+                    return themes[val];
+                }
+            }, new DiffUtil.ItemCallback<Integer>() {
+                @Override
+                public boolean areItemsTheSame(@NonNull @NotNull Integer oldItem, @NonNull @NotNull Integer newItem) {
+                    return oldItem.intValue() == newItem.intValue();
+                }
+
+                @Override
+                public boolean areContentsTheSame(@NonNull @NotNull Integer oldItem, @NonNull @NotNull Integer newItem) {
+                    return oldItem.intValue() == newItem.intValue();
+                }
+            }, types, oldTheme);
+            dialog.setOnDismissListener(new DialogInterface.OnDismissListener() {
+                @Override
+                public void onDismiss(DialogInterface dialog) {
+                    if (oldTheme != Hawk.get(HawkConfig.THEME_TAG, 0)) {
+                        Utils.initTheme();
+                        Bundle bundle = new Bundle();
+                        bundle.putBoolean("useCache", true);
+                        jumpActivity(MainActivity.class, bundle);
+                    }
+                }
+            });
+            dialog.show();
+        }));
+
+        findViewById(R.id.llTMDB).setVisibility(BuildConfig.DEBUG?View.VISIBLE:View.GONE);
+        findViewById(R.id.llTMDB).setOnClickListener(view -> {
+            String token = Hawk.get(HawkConfig.TOKEN_TMDB, "");
+            new XPopup.Builder(mActivity)
+                    .asInputConfirm("IMDB", "", token, "请录入token,不必带Bearer", text -> {
+                        if (!TextUtils.isEmpty(text)){
+                            Hawk.put(HawkConfig.TOKEN_TMDB,text);
+                            ToastUtils.showShort("设置成功");
+                        }
+                    }, null, R.layout.dialog_input).show();
+        });
     }
 
     private void onClickIjkCachePlay(View v) {
@@ -559,9 +710,6 @@ public class ModelSettingFragment extends BaseLazyFragment {
 
     private void onClickClearCache(View v) {
         FastClickCheckUtil.check(v);
-
-        SPUtils.getInstance(CacheConst.VIDEO_DURATION_SP).clear();
-        SPUtils.getInstance(CacheConst.VIDEO_PROGRESS_SP).clear();
 
         String cachePath = FileUtils.getCachePath();
         File cacheDir = new File(cachePath);
@@ -574,7 +722,6 @@ public class ModelSettingFragment extends BaseLazyFragment {
             }
         }).start();
         Toast.makeText(getContext(), "缓存已清空", Toast.LENGTH_LONG).show();
-        return;
     }
 
 
@@ -589,12 +736,13 @@ public class ModelSettingFragment extends BaseLazyFragment {
     }
 
     String getHomeRecName(int type) {
-        if (type == 1) {
-            return "站点推荐";
-        } else if (type == 2) {
-            return "观看历史";
-        } else {
-            return "豆瓣热播";
+        switch (type) {
+            case 0:
+                return "豆瓣热播";
+            case 1:
+                return "站点推荐";
+            default:
+                return "关闭";
         }
     }
 

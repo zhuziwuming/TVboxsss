@@ -1,10 +1,16 @@
 package com.github.tvbox.osc.util;
 
+import android.content.res.Configuration;
 import android.database.Cursor;
+import android.os.Build;
 import android.provider.MediaStore;
+
+import androidx.appcompat.app.AppCompatDelegate;
 
 import com.github.tvbox.osc.base.App;
 import com.github.tvbox.osc.bean.VideoInfo;
+import com.github.tvbox.osc.bean.VodInfo;
+import com.orhanobut.hawk.Hawk;
 
 import java.util.ArrayList;
 import java.util.Formatter;
@@ -18,6 +24,22 @@ import java.util.Locale;
  * @Description :
  */
 public class Utils {
+
+    public static boolean supportsPiPMode() {
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.O;
+    }
+
+    public static int getSeriesSpanCount(List<VodInfo.VodSeries> list) {
+        int spanCount = 4;
+        int total = 0;
+        for (VodInfo.VodSeries item : list) total += item.name.length();
+        int offset = (int) Math.ceil((double) total / list.size());
+        if (offset >= 12) spanCount = 1;
+        else if (offset >= 8) spanCount = 2;
+        else if (offset >= 4) spanCount = 3;
+        else if (offset >= 2) spanCount = 4;
+        return spanCount;
+    }
 
     public static String stringForTime(long timeMs) {
 //        if (timeMs <= 0 || timeMs >= 24 * 60 * 60 * 1000) {
@@ -76,5 +98,24 @@ public class Utils {
             cursor.close();
         }
         return videoList;
+    }
+
+    public static boolean isDarkTheme(){
+        int currentNightMode = App.getInstance().getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
+        return currentNightMode == Configuration.UI_MODE_NIGHT_YES || AppCompatDelegate.getDefaultNightMode()==AppCompatDelegate.MODE_NIGHT_YES;
+    }
+
+    public static void initTheme(){
+        switch (Hawk.get(HawkConfig.THEME_TAG,0)) {
+            case 0:
+                AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM);
+                break;
+            case 1:
+                AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_NO);
+                break;
+            case 2:
+                AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES);
+                break;
+        }
     }
 }

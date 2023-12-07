@@ -12,12 +12,15 @@ import com.blankj.utilcode.util.ToastUtils;
 import com.chad.library.adapter.base.BaseQuickAdapter;
 import com.github.tvbox.osc.R;
 import com.github.tvbox.osc.base.BaseActivity;
+import com.github.tvbox.osc.base.BaseVbActivity;
 import com.github.tvbox.osc.bean.Movie;
 import com.github.tvbox.osc.bean.VodInfo;
 import com.github.tvbox.osc.cache.RoomDataManger;
+import com.github.tvbox.osc.databinding.ActivityHistoryBinding;
 import com.github.tvbox.osc.event.RefreshEvent;
 import com.github.tvbox.osc.ui.adapter.HistoryAdapter;
 import com.github.tvbox.osc.util.FastClickCheckUtil;
+import com.github.tvbox.osc.util.Utils;
 import com.hjq.bar.TitleBar;
 import com.lxj.xpopup.XPopup;
 import com.lxj.xpopup.interfaces.OnConfirmListener;
@@ -36,15 +39,8 @@ import java.util.List;
  * @date :2021/1/7
  * @description:
  */
-public class HistoryActivity extends BaseActivity {
-    private RecyclerView mGridView;
+public class HistoryActivity extends BaseVbActivity<ActivityHistoryBinding> {
     private HistoryAdapter historyAdapter;
-    private TitleBar mTitleBar;
-
-    @Override
-    protected int getLayoutResID() {
-        return R.layout.activity_history;
-    }
 
     @Override
     protected void init() {
@@ -54,34 +50,32 @@ public class HistoryActivity extends BaseActivity {
 
     private void initView() {
 
-        mTitleBar = findViewById(R.id.title_bar);
-        mGridView = findViewById(R.id.mGridView);
-        mGridView.setHasFixedSize(true);
-        mGridView.setLayoutManager(new V7GridLayoutManager(this.mContext, 3));
+        mBinding.mGridView.setHasFixedSize(true);
+        mBinding.mGridView.setLayoutManager(new V7GridLayoutManager(this.mContext, 3));
         historyAdapter = new HistoryAdapter();
-        mGridView.setAdapter(historyAdapter);
+        mBinding.mGridView.setAdapter(historyAdapter);
         historyAdapter.setOnItemLongClickListener((BaseQuickAdapter.OnItemLongClickListener) (adapter, view, position) -> {
             FastClickCheckUtil.check(view);
             VodInfo vodInfo = historyAdapter.getData().get(position);
-            new XPopup.Builder(this)
-                    .asConfirm("提示", "确定删除该条记录?", () -> {
-                        if (vodInfo != null) {
-                            historyAdapter.remove(position);
-                            RoomDataManger.deleteVodRecord(vodInfo.sourceKey, vodInfo);
-                        } else {
-                            ToastUtils.showLong("未查询到该条记录,请重试或清空全部记录");
-                        }
-                    }).show();
+            if (vodInfo != null) {
+                historyAdapter.remove(position);
+                RoomDataManger.deleteVodRecord(vodInfo.sourceKey, vodInfo);
+                if (historyAdapter.getData().isEmpty()){
+                    mBinding.topTip.setVisibility(View.GONE);
+                }
+            } else {
+                ToastUtils.showLong("未查询到该条记录,请重试或清空全部记录");
+            }
             return true;
         });
 
-        mTitleBar.getRightView().setOnClickListener(view -> {
+        mBinding.titleBar.getRightView().setOnClickListener(view -> {
             new XPopup.Builder(this)
+                    .isDarkTheme(Utils.isDarkTheme())
                     .asConfirm("提示", "确定清空?", () -> {
-                        for (VodInfo datum : historyAdapter.getData()) {
-                            RoomDataManger.deleteVodRecord(datum.sourceKey, datum);
-                        }
+                        RoomDataManger.deleteVodRecordAll();
                         historyAdapter.setNewData(new ArrayList<>());
+                        mBinding.topTip.setVisibility(View.GONE);
                     }).show();
         });
 
@@ -104,10 +98,13 @@ public class HistoryActivity extends BaseActivity {
         List<VodInfo> vodInfoList = new ArrayList<>();
         for (VodInfo vodInfo : allVodRecord) {
             if (vodInfo.playNote != null && !vodInfo.playNote.isEmpty())
-                vodInfo.note = "上次看到" + vodInfo.playNote;
+                vodInfo.note = vodInfo.playNote;
             vodInfoList.add(vodInfo);
         }
         historyAdapter.setNewData(vodInfoList);
+        if (!vodInfoList.isEmpty()){
+            mBinding.topTip.setVisibility(View.VISIBLE);
+        }
     }
 
 
