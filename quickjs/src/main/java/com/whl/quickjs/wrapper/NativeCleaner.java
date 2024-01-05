@@ -1,4 +1,4 @@
-package com.github.tvbox.quickjs;
+package com.whl.quickjs.wrapper;
 
 import java.lang.ref.PhantomReference;
 import java.lang.ref.ReferenceQueue;
@@ -24,7 +24,7 @@ abstract class NativeCleaner<T> {
      * Registers the object and the native pointer to this cleaner.
      *
      * @param referent the object
-     * @param pointer the native pointer
+     * @param pointer  the native pointer
      */
     public void register(T referent, long pointer) {
         phantomReferences.add(new NativeReference<>(referent, pointer, referenceQueue));
