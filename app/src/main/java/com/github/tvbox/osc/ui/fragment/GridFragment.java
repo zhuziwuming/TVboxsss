@@ -5,10 +5,14 @@ import android.text.TextUtils;
 import android.view.View;
 import android.view.animation.BounceInterpolator;
 
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.lifecycle.Observer;
 import androidx.lifecycle.ViewModelProvider;
 import androidx.recyclerview.widget.RecyclerView;
 
+import com.blankj.utilcode.util.GsonUtils;
+import com.blankj.utilcode.util.LogUtils;
 import com.chad.library.adapter.base.BaseQuickAdapter;
 import com.github.tvbox.osc.R;
 import com.github.tvbox.osc.api.ApiConfig;
@@ -78,13 +82,28 @@ public class GridFragment extends BaseLazyFragment {
     }
 
     @Override
+    public void onCreate(@Nullable Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        if (savedInstanceState != null && this.sortData == null) {
+            //activity销毁再进入,会直接恢复fragment,从而直接getList,导致sortData为空闪退
+            this.sortData = GsonUtils.fromJson(savedInstanceState.getString("sortDataJson"), MovieSort.SortData.class);
+        }
+    }
+
+    @Override
     protected void init() {
         initView();
         initViewModel();
         initData();
     }
 
-    private void changeView(String id,Boolean isFolder){
+    @Override
+    public void onSaveInstanceState(@NonNull Bundle outState) {
+        super.onSaveInstanceState(outState);
+        outState.putString("sortDataJson", GsonUtils.toJson(sortData));
+    }
+
+    private void changeView(String id, Boolean isFolder){
         if(isFolder){
             this.sortData.flag ="1"; // 修改sortData.flag
         }else {
@@ -262,6 +281,10 @@ public class GridFragment extends BaseLazyFragment {
     }
 
     private void initData() {
+        if (ApiConfig.get().getHomeSourceBean().getApi()==null){// 系统杀死app恢复缓存的fragment后会直接getList,此时首页api都未加载完
+            showEmpty();
+            return;
+        }
         showLoading();
         isLoad = false;
         scrollTop();
@@ -278,7 +301,7 @@ public class GridFragment extends BaseLazyFragment {
     }
 
     public void showFilter() {
-        if (!sortData.filters.isEmpty() && gridFilterDialog == null) {
+        if (sortData!=null && !sortData.filters.isEmpty() && gridFilterDialog == null) {
             gridFilterDialog = new GridFilterDialog(mContext);
             gridFilterDialog.setData(sortData);
             gridFilterDialog.setOnDismiss(new GridFilterDialog.Callback() {

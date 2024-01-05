@@ -2,14 +2,14 @@ apply plugin: 'com.android.application'
 apply plugin: 'org.jetbrains.kotlin.android'
 
 android {
-    compileSdkVersion 30
+    compileSdkVersion 33
 
     defaultConfig {
-        applicationId 'com.github.tvbox.mobie'
+        applicationId 'com.github.tvbox.osc2'
         minSdkVersion 24
         targetSdkVersion 30
-        versionCode 23
-        versionName '1.0.3'
+        versionCode 28
+        versionName '1.0.8'
         multiDexEnabled true
         //设置room的Schema的位置
         javaCompileOptions {
@@ -17,6 +17,12 @@ android {
                 arguments = ["room.schemaLocation": "$projectDir/schemas".toString()]
             }
         }
+
+        ndk {
+            //abiFilters "armeabi-v7a"//, ""
+            abiFilters "arm64-v8a"
+        }
+
     }
 
 
@@ -25,7 +31,7 @@ android {
 
         // Apk 输出配置
         variant.outputs.all { output ->
-            outputFileName = rootProject.getName() + '_v' + variant.versionName + '_' + variant.buildType.name
+            outputFileName = 'MBox_v' + variant.versionName + '_' + variant.buildType.name
             if (variant.buildType.name == buildTypes.release.getName()) {
                 outputFileName += '_' + new Date().format("yyyyMMdd")
             }
@@ -55,19 +61,11 @@ android {
             signingConfig signingConfigs.config
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             minifyEnabled false
-
-            ndk {
-                abiFilters 'armeabi-v7a'
-            }
         }
         release {
             signingConfig signingConfigs.config
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             minifyEnabled true
-
-            ndk {
-                abiFilters 'armeabi-v7a'
-            }
         }
     }
 
@@ -96,7 +94,7 @@ android {
 }
 
 dependencies {
-    api fileTree(dir: "libs", include: ["*.jar"])
+    api fileTree(dir: "libs", include: ['*.jar', '*.aar'])
 
     implementation 'com.google.android.material:material:1.4.0'
 
@@ -111,6 +109,7 @@ dependencies {
     implementation 'androidx.recyclerview:recyclerview:1.2.1'
     implementation files('libs/thunder.jar')
     implementation files('libs/commons-lang3-3.12.0.jar')
+    implementation 'org.conscrypt:conscrypt-android:2.5.2'
 
     implementation 'com.squareup.okhttp3:okhttp:3.12.11'
     annotationProcessor 'androidx.room:room-compiler:2.3.0'
@@ -130,6 +129,7 @@ dependencies {
 
     implementation project(":player")
     implementation project(":quickjs")
+    implementation 'net.sourceforge.streamsupport:android-retrofuture:1.7.4'
 
     implementation('org.xwalk:xwalk_shared_library:23.53.589.4') {
         exclude group: 'com.android.support'
